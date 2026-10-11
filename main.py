@@ -1,8 +1,8 @@
 import os
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from google import genai
 
 app = FastAPI(title="LexIA API")
 
@@ -14,7 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 class QueryRequest(BaseModel):
     prompt: str
@@ -35,19 +35,39 @@ def health_check():
 
 @app.post("/api/chat")
 def chat(request: QueryRequest):
-    if not GEMINI_API_KEY:
-        raise HTTPException(status_code=500, detail="Chave GEMINI_API_KEY não configurada no Render.")
+    if not GROQ_API_KEY:
+        raise HTTPException(
+            status_code=500, 
+            detail="A variável GROQ_API_KEY não foi encontrada nas variáveis de ambiente do Render."
+        )
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY.strip()}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": request.prompt}
+        ],
+        "temperature": 0.3
+    }
     
     try:
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        data = response.json()
         
-        full_prompt = f"{SYSTEM_PROMPT}\n\nConsulta do usuário: {request.prompt}"
+        if response.status_code != 200:
+            error_msg = data.get("error", {}).get("message", response.text)
+            raise HTTPException(status_code=500, detail=f"Erro Groq API ({response.status_code}): {error_msg}")
+            
+        bot_reply = data["choices"][0]["message"]["content"]
+        return {"response": bot_reply}
         
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=full_prompt,
-        )
-        
-        return {"response": response.text}
+    except requests.exceptions.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Erro na conexão HTTP com o Groq: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro no Gemini: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro interno do servidor: {str(e)}")
