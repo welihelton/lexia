@@ -6,7 +6,6 @@ import google.generativeai as genai
 
 app = FastAPI(title="LexIA API")
 
-# Libera o acesso para o seu site no GitHub Pages
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,31 +31,6 @@ Diretrizes estritas:
 4. Lembre sempre o usuário de que suas respostas são informativas e não substituem a consulta com um advogado ou defensoria pública.
 """
 
-def get_active_model():
-    """Busca dinamicamente o primeiro modelo disponível para a chave fornecida."""
-    available_models = []
-    try:
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-    except Exception as e:
-        print(f"Erro ao listar modelos: {e}")
-
-    # Lista de preferência de nomes caso a busca estática seja necessária
-    preferred = [
-        "models/gemini-2.5-flash",
-        "models/gemini-2.0-flash",
-        "models/gemini-1.5-flash",
-        "models/gemini-1.5-pro",
-        "gemini-1.5-flash"
-    ]
-
-    for model in available_models:
-        if any(p in model for p in ["flash", "pro"]):
-            return model
-            
-    return available_models[0] if available_models else "models/gemini-1.5-flash"
-
 @app.get("/")
 def health_check():
     return {"status": "LexIA Backend está online!"}
@@ -66,23 +40,25 @@ def chat(request: QueryRequest):
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Chave GEMINI_API_KEY não configurada no Render.")
     
-    selected_model = get_active_model()
+    models_to_try = [
+        "gemini-2.5-flash", 
+        "gemini-2.0-flash", 
+        "gemini-1.5-flash",
+        "models/gemini-1.5-flash",
+        "gemini-pro"
+    ]
     
-    try:
-        model = genai.GenerativeModel(
-            model_name=selected_model,
-            system_instruction=SYSTEM_PROMPT
-        )
-        response = model.generate_content(request.prompt)
-        return {"response": response.text}
-    except Exception as e:
-        # Tentativa de fallback sem system_instruction
+    last_error = None
+    for model_name in models_to_try:
         try:
-            model = genai.GenerativeModel(selected_model)
-            response = model.generate_content(f"{SYSTEM_PROMPT}\n\nPergunta do usuário: {request.prompt}")
-            return {"response": response.text}
-        except Exception as err:
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Erro no modelo [{selected_model}]: {str(err)}"
+            model = genai.GenerativeModel(
+                model_name=model_name,
+                system_instruction=SYSTEM_PROMPT
             )
+            response = model.generate_content(request.prompt)
+            return {"response": response.text}
+        except Exception as e:
+            last_error = str(e)
+            continue
+            
+    raise HTTPException(status_code=500, detail=f"Erro ao conectar aos modelos do Gemini: {last_error}")
