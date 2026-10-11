@@ -46,12 +46,12 @@ def chat(request: QueryRequest):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": request.prompt}
         ],
-        "max_tokens": 1024,
+        "max_tokens": 800,
         "temperature": 0.3
     }
     
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=15)
+        response = requests.post(url, json=payload, headers=headers, timeout=8)
         data = response.json()
         
         if response.status_code != 200:
