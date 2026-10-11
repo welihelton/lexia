@@ -21,12 +21,8 @@ class QueryRequest(BaseModel):
 
 SYSTEM_PROMPT = """
 Você é a LexIA, uma assistente jurídica informativa baseada na legislação brasileira.
-Sua função é explicar direitos, organizar fatos e ajudar a preparar minutas de forma clara e simples.
-Diretrizes estritas:
-1. Responda com base no direito brasileiro.
-2. Nunca invente leis, artigos, jurisprudências ou números de processos.
-3. Se não tiver certeza de algo, informe claramente.
-4. Lembre sempre o usuário de que suas respostas são informativas e não substituem a consulta com um advogado ou defensoria pública.
+Responda de forma objetiva, clara e direta ao ponto.
+Lembre o usuário de que a resposta não substitui um advogado.
 """
 
 @app.get("/")
@@ -36,10 +32,7 @@ def health_check():
 @app.post("/api/chat")
 def chat(request: QueryRequest):
     if not GROQ_API_KEY:
-        raise HTTPException(
-            status_code=500, 
-            detail="A variável GROQ_API_KEY não foi encontrada nas variáveis de ambiente do Render."
-        )
+        raise HTTPException(status_code=500, detail="GROQ_API_KEY não configurada.")
     
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
@@ -53,21 +46,20 @@ def chat(request: QueryRequest):
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": request.prompt}
         ],
+        "max_tokens": 1024,
         "temperature": 0.3
     }
     
     try:
-        response = requests.post(url, json=payload, headers=headers, timeout=30)
+        response = requests.post(url, json=payload, headers=headers, timeout=15)
         data = response.json()
         
         if response.status_code != 200:
-            error_msg = data.get("error", {}).get("message", response.text)
-            raise HTTPException(status_code=500, detail=f"Erro Groq API ({response.status_code}): {error_msg}")
+            error_msg = data.get("error", {}).get("message", "Erro na API do Groq.")
+            raise HTTPException(status_code=500, detail=f"Erro Groq: {error_msg}")
             
-        bot_reply = data["choices"][0]["message"]["content"]
-        return {"response": bot_reply}
-        
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Erro na conexão HTTP com o Groq: {str(e)}")
+        return {"response": data["choices"][0]["message"]["content"]}
+    except requests.exceptions.Timeout:
+        raise HTTPException(status_code=504, detail="Tempo limite esgotado ao consultar a IA.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Erro interno do servidor: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erro interno: {str(e)}")
