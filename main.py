@@ -2,11 +2,10 @@ import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import google.generativeai as genai
+from google import genai
 
 app = FastAPI(title="LexIA API")
 
-# Permite chamadas de qualquer origem (inclusive GitHub Pages)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,8 +15,6 @@ app.add_middleware(
 )
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 class QueryRequest(BaseModel):
     prompt: str
@@ -41,33 +38,16 @@ def chat(request: QueryRequest):
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="Chave GEMINI_API_KEY não configurada no Render.")
     
-    # Ordem de tentativa dos identificadores oficiais da API
-    models_to_try = [
-        "gemini-1.5-flash",
-        "gemini-1.5-pro",
-        "gemini-2.0-flash-exp",
-        "gemini-pro"
-    ]
-    
-    last_error = None
-    for model_name in models_to_try:
-        try:
-            model = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=SYSTEM_PROMPT
-            )
-            response = model.generate_content(request.prompt)
-            return {"response": response.text}
-        except Exception as e:
-            last_error = str(e)
-            continue
-            
-    # Tentativa de fallback simplificado sem system_instruction
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(f"{SYSTEM_PROMPT}\n\nConsulta: {request.prompt}")
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        
+        full_prompt = f"{SYSTEM_PROMPT}\n\nConsulta do usuário: {request.prompt}"
+        
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=full_prompt,
+        )
+        
         return {"response": response.text}
     except Exception as e:
-        last_error = str(e)
-
-    raise HTTPException(status_code=500, detail=f"Erro ao conectar ao Gemini: {last_error}")
+        raise HTTPException(status_code=500, detail=f"Erro no Gemini: {str(e)}")
